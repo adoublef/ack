@@ -44,8 +44,10 @@ func modItem(ctx context.Context, c *http.Client, baseURL string, id uuid.UUID, 
 	return resp, cmp.Or(err1, err2, err3)
 }
 
-func addItem(ctx context.Context, c *http.Client, baseURL string, m item.Meta) (*http.Response, error) {
-	p, err1 := json.Marshal(m)
+func addItem(ctx context.Context, c *http.Client, baseURL string, data []byte) (*http.Response, error) {
+	p, err1 := json.Marshal(&struct {
+		Data []byte `json:"data"`
+	}{Data: data})
 	req, err2 := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/items", bytes.NewReader(p))
 	resp, err3 := c.Do(req)
 	return resp, cmp.Or(err1, err2, err3)

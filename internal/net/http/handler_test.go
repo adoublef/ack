@@ -24,7 +24,7 @@ func TestHandle_handleItem(t *testing.T) {
 	s := newHTTP(t, db)
 
 	// create a new item
-	resp, err := addItem(ctx, s.Client(), s.URL, item.Meta{})
+	resp, err := addItem(ctx, s.Client(), s.URL, nil)
 	is.OK(t, err)
 	is.Equal(t, resp.StatusCode, http.StatusCreated)
 
