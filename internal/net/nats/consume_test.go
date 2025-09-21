@@ -11,7 +11,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -22,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go"
 	"go.adoublef.dev/testing/is"
+	"go.adoublef.dev/testing/wait"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -32,50 +32,58 @@ func TestConsume(t *testing.T) {
 
 	s := newHTTP(t, db)
 	nc := newNATS(t, db)
-
 	// todo: mqtt for the remote items
 
 	g, ctx := errgroup.WithContext(ctx)
 
+	// create [item.Item] via http api
+	// and return its id
 	ids := ids(ctx, g, s, 1, 1)
+	// create message to be sent to the consumer
 	ids, msgs := msgs(ctx, g, ids, 1, 1) // shadow as we need to proxy the ids to the poll stage
+	// send messages to the consumer that will
+	// modify an [item.Item]
 	send(ctx, g, nc, msgs, 1)
+	// poll the http api to assert the changes
+	// have been made on the [item.Item]
 	poll(ctx, g, s, ids, 1)
 
-	is.OK(t, g.Wait())
-
-	time.Sleep(time.Second) // fixme: remove
+	is.OK(t, g.Wait()) // OK
 }
 
-func poll(ctx context.Context, g *errgroup.Group, s *httptest.Server, ids <-chan uuid.UUID, parallel int) {
+func poll(ctx context.Context, g *errgroup.Group, s *httptest.Server, ids <-chan string, parallel int) {
 	g.Go(func() error {
 		g, ctx := errgroup.WithContext(ctx)
 		g.SetLimit(parallel)
+
+		timeout := time.Second * 15
 
 		url := s.URL + "/items/"
 		c := s.Client()
 
 		for id := range ids {
 			g.Go(func() error {
-				// this is a poll until a known state
-				req, err1 := http.NewRequestWithContext(ctx, http.MethodGet, url+id.String(), nil)
-				resp, err2 := c.Do(req)
-				if err := cmp.Or(err1, err2); err != nil {
-					return err
-				}
-				defer resp.Body.Close()
-				if resp.StatusCode != http.StatusOK {
-					return fmt.Errorf("failed to fetch item: %s", http.StatusText(resp.StatusCode))
-				}
+				f := func() error {
+					req, err1 := http.NewRequestWithContext(ctx, http.MethodGet, url+id, nil)
+					resp, err2 := c.Do(req)
+					if err := cmp.Or(err1, err2); err != nil {
+						return err
+					}
+					defer resp.Body.Close()
+					// if not found then we just skip
+					if resp.StatusCode != http.StatusOK {
+						return fmt.Errorf("failed to fetch item: %s: %w", http.StatusText(resp.StatusCode), wait.SkipRetry)
+					}
 
-				var item struct {
-					ID uuid.UUID `json:"id"`
+					var item struct {
+						ID uuid.UUID `json:"id"`
+					}
+					if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+						return err
+					}
+					return nil
 				}
-				if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
-					return err
-				}
-				log.Printf("found the item %v", item.ID)
-				return nil
+				return wait.ForFunc(ctx, timeout, f)
 			})
 		}
 
@@ -101,8 +109,8 @@ func send(ctx context.Context, g *errgroup.Group, nc *nats.Conn, msgs <-chan nat
 	})
 }
 
-func msgs(ctx context.Context, g *errgroup.Group, ids <-chan uuid.UUID, count, parallel int) (<-chan uuid.UUID, <-chan nats.Msg) {
-	ch := make(chan uuid.UUID, parallel)
+func msgs(ctx context.Context, g *errgroup.Group, ids <-chan string, count, parallel int) (<-chan string, <-chan nats.Msg) {
+	ch := make(chan string, parallel)
 	msgs := make(chan nats.Msg, parallel)
 	g.Go(func() error {
 		defer func() { close(ch); close(msgs) }()
@@ -121,7 +129,7 @@ func msgs(ctx context.Context, g *errgroup.Group, ids <-chan uuid.UUID, count, p
 				// lets create more messages soon
 				for range count {
 					v := &struct {
-						ID uuid.UUID `json:"id"`
+						ID string `json:"id"`
 					}{
 						ID: id,
 					}
@@ -148,8 +156,8 @@ func msgs(ctx context.Context, g *errgroup.Group, ids <-chan uuid.UUID, count, p
 	return ch, msgs
 }
 
-func ids(ctx context.Context, g *errgroup.Group, s *httptest.Server, count, parallel int) <-chan uuid.UUID {
-	ch := make(chan uuid.UUID, parallel)
+func ids(ctx context.Context, g *errgroup.Group, s *httptest.Server, count, parallel int) <-chan string {
+	ch := make(chan string, parallel)
 	g.Go(func() error {
 		defer close(ch)
 
@@ -175,7 +183,7 @@ func ids(ctx context.Context, g *errgroup.Group, s *httptest.Server, count, para
 				}
 
 				var created struct {
-					ID uuid.UUID `json:"id"`
+					ID string `json:"id"`
 				}
 				if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 					return err
