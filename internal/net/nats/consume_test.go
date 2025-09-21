@@ -42,9 +42,9 @@ func TestConsume(t *testing.T) {
 	send(ctx, g, nc, msgs, 1)
 	poll(ctx, g, s, ids, 1)
 
-	is.OK(t, cmp.Or(g.Wait()))
+	is.OK(t, g.Wait())
 
-	time.Sleep(time.Second)
+	time.Sleep(time.Second) // fixme: remove
 }
 
 func poll(ctx context.Context, g *errgroup.Group, s *httptest.Server, ids <-chan uuid.UUID, parallel int) {
