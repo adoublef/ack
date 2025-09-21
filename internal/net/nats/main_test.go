@@ -46,7 +46,7 @@ func newNATS(t testing.TB, db *item.DB) *Conn {
 	is.OK(t, err) // Connect
 	t.Cleanup(func() { is.OK(t, nc.Drain()) /* Drain */ })
 
-	is.OK(t, Consume(nc, db)) // Consume
+	is.OK(t, Consume(nc, db, 1, 1)) // Consume
 
 	return nc
 }
