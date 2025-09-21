@@ -122,7 +122,7 @@ func msgs(ctx context.Context, g *errgroup.Group, ids <-chan string, count, para
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case ch <- id: // pipe this to the next stage
+			case ch <- id: // proxy
 			}
 			g.Go(func() error {
 				// create a message to be processed in another pipeline stage
