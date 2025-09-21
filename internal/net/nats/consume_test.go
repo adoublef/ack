@@ -32,7 +32,6 @@ func TestConsume(t *testing.T) {
 
 	s := newHTTP(t, db)
 	nc := newNATS(t, db)
-	// todo: mqtt for the remote items
 
 	g, ctx := errgroup.WithContext(ctx)
 
